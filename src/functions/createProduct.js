@@ -1,49 +1,46 @@
 const { app } = require("@azure/functions");
 const { getClientInstance } = require("../helpers/cosmos");
+const { validateProductSchema } = require("../helpers/validation");
+const { mapNewProductCreationData } = require("../helpers/mappers");
 const env = require("../config/env");
 
 let dbClient = null;
 let isConnected = false;
 
-async function getAllProducts() {
-  const querySpec = {
-    query: `SELECT * FROM c`,
-  };
+async function handleEvent(request, context) {
+  const postJsonBody = await request.json();
+
+  validateProductSchema(postJsonBody);
+
+  const newProductData = mapNewProductCreationData(postJsonBody);
 
   const dbName = env.db.name;
   const container = env.db.container;
 
-  const { resources: results } = await dbClient
+  const { item } = await dbClient
     .database(dbName)
     .container(container)
-    .items.query(querySpec)
-    .fetchAll();
+    .items.upsert(newProductData);
 
-  // Log data
-  for (var queryResult of results) {
-    let resultString = JSON.stringify(queryResult);
-    console.log(`\tQuery returned ${resultString}\n`);
-  }
+  // Raw Data processing
+  // const requestBodyDataStream = request.body;
+  // for await (const chunk of requestBodyDataStream) {
+  // [process chunk]
+  // }
 
-  return results;
-}
+  const createdItemResponse = { message: "Created", data: { id: item.id } };
 
-async function handleEvent(request, context) {
-  context.log(`Http function processed request for url "${request.url}"`);
-  // const name = request.query.get('name') || await request.text() || 'world';
-  const productsData = await getAllProducts();
-  const responseBody = { data: [productsData] };
   return {
-    status: 200,
-    body: JSON.stringify(responseBody),
+    status: 201,
+    body: JSON.stringify(createdItemResponse),
     headers: {
       "Content-Type": "application/json",
     },
   };
 }
 
-app.http("getProducts", {
-  methods: ["GET"],
+app.http("createProduct", {
+  methods: ["POST"],
   authLevel: "anonymous",
   handler: async (request, context) => {
     try {
